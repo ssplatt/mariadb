@@ -1,5 +1,5 @@
 # vim:set ft=dockerfile:
-FROM debian:jessie
+FROM arm64v8/ubuntu:xenial
 
 # add our user and group first to make sure their IDs get assigned consistently, regardless of whatever dependencies get added
 RUN groupadd -r mysql && useradd -r -g mysql mysql
@@ -42,6 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& rm -rf /var/lib/apt/lists/*
 
 ENV GPG_KEYS \
+# Key fingerprint = 177F 4010 FE56 CA33 3630  0305 F165 6F24 C74C D1D8
+# MariaDB Signing Key <signing-key@mariadb.org>
+        C74CD1D8 \
 # Key fingerprint = 1993 69E5 404B D5FC 7D2F  E43B CBCB 082A 1BB9 43DB
 # MariaDB Package Signing Key <package-signing-key@mariadb.org>
 	199369E5404BD5FC7D2FE43BCBCB082A1BB943DB \
@@ -65,18 +68,27 @@ RUN set -ex; \
 	apt-key list
 
 # add Percona's repo for xtrabackup (which is useful for Galera)
-RUN echo "deb https://repo.percona.com/apt jessie main" > /etc/apt/sources.list.d/percona.list \
-	&& { \
-		echo 'Package: *'; \
-		echo 'Pin: release o=Percona Development Team'; \
-		echo 'Pin-Priority: 998'; \
-	} > /etc/apt/preferences.d/percona
+#RUN echo "deb https://repo.percona.com/apt jessie main" > /etc/apt/sources.list.d/percona.list \
+#	&& { \
+#		echo 'Package: *'; \
+#		echo 'Pin: release o=Percona Development Team'; \
+#		echo 'Pin-Priority: 998'; \
+#	} > /etc/apt/preferences.d/percona
 
 ENV MARIADB_MAJOR 10.2
-ENV MARIADB_VERSION 10.2.12+maria~jessie
+ENV MARIADB_VERSION 10.2.11+maria~xenial
+# the upstream arm64 tarball ships 10.2.11 packages
 
-RUN echo "deb http://ftp.osuosl.org/pub/mariadb/repo/$MARIADB_MAJOR/debian jessie main" > /etc/apt/sources.list.d/mariadb.list \
-	&& { \
+# set up arm64 repo
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && cd /opt \
+    && curl -O https://downloads.mariadb.com/MariaDB/mariadb-10.2.12/repo/ubuntu/mariadb-10.2.12-ubuntu-xenial-arm64-debs.tar \
+    && tar xvf mariadb-10.2.12-ubuntu-xenial-arm64-debs.tar \
+    && echo "deb file:///opt/mariadb-10.2.11-ubuntu-xenial-arm64-debs ./" > /etc/apt/sources.list.d/mariadb.list
+
+#RUN echo "deb http://ftp.osuosl.org/pub/mariadb/repo/$MARIADB_MAJOR/debian jessie main" > /etc/apt/sources.list.d/mariadb.list \
+RUN	{ \
 		echo 'Package: *'; \
 		echo 'Pin: release o=MariaDB'; \
 		echo 'Pin-Priority: 999'; \
@@ -94,7 +106,7 @@ RUN { \
 	&& apt-get install -y \
 		"mariadb-server=$MARIADB_VERSION" \
 # percona-xtrabackup is installed at the same time so that `mysql-common` is only installed once from just mariadb repos
-		percona-xtrabackup-24 \
+		#percona-xtrabackup-24 \
 		socat \
 	&& rm -rf /var/lib/apt/lists/* \
 # comment out any "user" entires in the MySQL config ("docker-entrypoint.sh" or "--user" will handle user switching)
@@ -109,7 +121,11 @@ RUN { \
 		| xargs -0 grep -lZE '^(bind-address|log)' \
 		| xargs -rt -0 sed -Ei 's/^(bind-address|log)/#&/' \
 # don't reverse lookup hostnames, they are usually another container
-	&& echo '[mysqld]\nskip-host-cache\nskip-name-resolve' > /etc/mysql/conf.d/docker.cnf
+	&& echo '[mysqld]\nskip-host-cache\nskip-name-resolve' > /etc/mysql/conf.d/docker.cnf \
+# cleanup arm64 tar and repo directory
+        && rm -rf /opt/mariadb-10.2.11-ubuntu-xenial-arm64-debs \
+        && rm -rf /opt/mariadb-10.2.12-ubuntu-xenial-arm64-debs.tar
+       
 
 VOLUME /var/lib/mysql
 
